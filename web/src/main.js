@@ -1,10 +1,12 @@
 import { checkHealth } from "./api.js";
+import { createAssistantPanel } from "./assistant.js";
 import { createTerminalSession } from "./terminal.js";
 import { setConnectionStatus, state } from "./state.js";
 
 const statusEl = document.querySelector("#connection-status");
 const cwdEl = document.querySelector("#cwd");
 const terminalEl = document.querySelector("#terminal");
+const assistantEl = document.querySelector("#assistant-panel");
 const reconnectButton = document.querySelector("#reconnect-terminal");
 let terminalSession = null;
 
@@ -31,6 +33,14 @@ async function boot() {
   terminalSession = createTerminalSession({
     container: terminalEl,
     reconnectButton
+  });
+
+  createAssistantPanel({
+    container: assistantEl,
+    runCommand(command) {
+      terminalSession.sendCommand(command);
+      terminalSession.focus();
+    }
   });
 
   window.webTerminal = {

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"web-terminal/internal/audit"
+	"web-terminal/internal/safety"
 	"web-terminal/internal/terminal"
 )
 
@@ -18,6 +20,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/ws/terminal", s.handleTerminalWebSocket)
 	mux.HandleFunc("/api/assistant/suggest", s.handleAssistantSuggest)
 	mux.HandleFunc("/api/commands/risk", s.handleCommandRisk)
+	mux.HandleFunc("/api/commands/audit", s.handleCommandAudit)
 	mux.HandleFunc("/", s.handleStatic)
 
 	return securityHeaders(mux)
@@ -61,6 +64,7 @@ func (s *Server) handleAssistantSuggest(w http.ResponseWriter, r *http.Request) 
 			Risk:        terminal.RiskLow,
 		}
 	}
+	suggestion.Risk = safety.AssessCommand(suggestion.Command).Risk
 
 	writeJSON(w, http.StatusOK, terminal.AssistantSuggestResponse{
 		Suggestions: []terminal.CommandSuggestion{suggestion},
@@ -82,22 +86,51 @@ func (s *Server) handleCommandRisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	command := strings.ToLower(req.Command)
+	assessment := safety.AssessCommand(req.Command)
 	response := terminal.CommandRiskResponse{
-		Risk:                 terminal.RiskLow,
-		RequiresConfirmation: false,
-		Reason:               "This command does not match the initial risky-command placeholders.",
-	}
-
-	if strings.Contains(command, "rm -rf") || strings.Contains(command, "sudo") {
-		response = terminal.CommandRiskResponse{
-			Risk:                 terminal.RiskHigh,
-			RequiresConfirmation: true,
-			Reason:               "This command can make destructive or privileged changes.",
-		}
+		Risk:                 assessment.Risk,
+		RequiresConfirmation: safety.RequiresConfirmation(assessment.Risk),
+		Reason:               assessment.Reason,
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleCommandAudit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w, http.MethodPost)
+		return
+	}
+
+	var req audit.CommandRecord
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, terminal.ErrorMessage{
+			Type:    terminal.MessageTypeError,
+			Message: "invalid JSON request body",
+		})
+		return
+	}
+	if strings.TrimSpace(req.Command) == "" {
+		writeJSON(w, http.StatusBadRequest, terminal.ErrorMessage{
+			Type:    terminal.MessageTypeError,
+			Message: "command is required",
+		})
+		return
+	}
+
+	assessment := safety.AssessCommand(req.Command)
+	req.Risk = assessment.Risk
+	req.Source = "assistant"
+
+	if err := audit.AppendCommandRecord(req); err != nil {
+		writeJSON(w, http.StatusInternalServerError, terminal.ErrorMessage{
+			Type:    terminal.MessageTypeError,
+			Message: "failed to write audit log",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {

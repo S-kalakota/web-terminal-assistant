@@ -38,6 +38,20 @@ export async function checkCommandRisk(command) {
   return response.json();
 }
 
+export async function recordAssistantCommand({ command, cwd = "", risk = "low" }) {
+  const response = await fetch("/api/commands/audit", {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({ command, cwd, risk, source: "assistant" })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Audit request failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
 export function openTerminalSocket() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return new WebSocket(`${protocol}//${window.location.host}/ws/terminal`);
