@@ -1,116 +1,73 @@
 # Web Terminal Assistant
 
-Web Terminal Assistant is a local-first web app concept for interacting with your real computer through a browser-based terminal. The long-term goal is a friendlier terminal experience: users can type normal shell commands, or describe what they want in English and review a suggested command before running it.
+Web Terminal Assistant is a local-first web application that brings a terminal-style experience into the browser. The goal is to let a user interact with their actual computer from a website running locally on their machine.
 
-The app is intentionally designed as a local Go server plus a JavaScript browser UI. A regular hosted website cannot safely access a user's hard drive or run terminal commands, so this project runs on `127.0.0.1` and talks only to the machine where it is launched.
+The app is designed around a simple idea: the browser provides a friendlier interface, while a local Go backend handles the parts a normal website is not allowed to do, such as running shell commands or connecting to the filesystem.
 
-## What This Project Is Building
+## What It Does
 
-- A browser-based terminal connected to a local Go backend.
-- A future PTY-backed shell session so commands like `pwd`, `cd`, `ls`, and `git status` run on the user's actual computer.
-- An assistant panel that translates plain English into command suggestions.
-- Safety checks for destructive commands before they run.
-- Local audit logging for assistant-approved commands.
-- A multi-agent implementation plan so different contributors can work on clear components.
-
-## Current Status
-
-This repository currently contains the Agent 1 skeleton from [docs/agents/agent-01-skeleton.md](docs/agents/agent-01-skeleton.md).
-
-Implemented:
-
-- Go module and local HTTP server.
-- Static JavaScript frontend shell.
-- Shared JSON message structs.
-- `GET /healthz`.
-- Placeholder `GET /ws/terminal`.
-- Placeholder `POST /api/assistant/suggest`.
-- Placeholder `POST /api/commands/risk`.
-- Multi-agent planning docs.
-
-Planned next:
-
-- Real PTY-backed terminal session.
-- `xterm.js` terminal UI.
-- Complete assistant panel.
-- Full command safety and audit logging.
-- Production packaging.
+- Serves a browser-based terminal interface from a local Go server.
+- Runs locally at `http://127.0.0.1:8080`.
+- Provides API routes for terminal communication, assistant suggestions, and command risk checks.
+- Includes a JavaScript frontend shell with a terminal panel and assistant panel.
+- Lays the foundation for a real PTY-backed terminal where commands like `pwd`, `ls`, `cd`, and `git status` can run on the user's computer.
+- Includes the foundation for an English-to-command assistant that can suggest shell commands before the user approves them.
 
 ## Why It Runs Locally
 
-Browsers block direct access to the filesystem and shell for good reason. To make a real terminal-in-the-browser work, the user must run a local application that has permission to interact with the computer.
+A normal hosted website cannot safely access a user's hard drive or run terminal commands. Browsers block that on purpose.
 
-Default local address:
+This project solves that by running a local Go server on the user's computer. The browser talks to that local server, and the local server is responsible for terminal access.
 
-```text
-http://127.0.0.1:8080
-```
-
-The server should stay bound to localhost unless explicit remote access and authentication are added later.
-
-## Requirements
-
-- Go 1.22 or newer.
-- Node.js and npm for frontend development.
-
-## Run The Skeleton
-
-From the repository root:
-
-```sh
-go run ./cmd/web-terminal
-```
-
-Then open:
+By default, the app binds to:
 
 ```text
-http://127.0.0.1:8080
+127.0.0.1:8080
 ```
 
-## Frontend Development
+## Tech Stack
 
-Install dependencies:
+- Go for the local backend server, routing, API contracts, and future terminal process management.
+- JavaScript for the browser UI.
+- HTML and CSS for the frontend layout and styling.
+- Vite for frontend development and builds.
+- npm for frontend dependency management.
+
+## Project Structure
+
+```text
+cmd/web-terminal/        Go application entry point
+internal/server/         HTTP server and route handlers
+internal/terminal/       Shared terminal and API message structs
+web/                     JavaScript frontend app
+docs/                    Planning and implementation notes
+```
+
+## Run Locally
+
+Install Go and Node.js, then from the project root run:
 
 ```sh
 npm --prefix web install
+go run ./cmd/web-terminal
 ```
 
-Build the frontend:
+Open:
+
+```text
+http://127.0.0.1:8080
+```
+
+## Build Frontend
 
 ```sh
 npm --prefix web run build
 ```
 
-## Environment
+## Current Status
 
-Optional settings:
+This is an early project skeleton. The local server, static frontend, shared API message shapes, and placeholder assistant/risk routes are in place. The next major step is implementing the real PTY-backed terminal session so commands run through the user's actual shell.
 
-```sh
-WEB_TERMINAL_ADDR=127.0.0.1:8080
-WEB_TERMINAL_WEB_DIR=web
-```
+## Safety
 
-## Current Routes
-
-- `GET /`
-- `GET /healthz`
-- `GET /ws/terminal`
-- `POST /api/assistant/suggest`
-- `POST /api/commands/risk`
-
-## Repository Plan
-
-The build is split into agent-sized workstreams:
-
-- Agent 1: Skeleton and contracts.
-- Agent 2: Go terminal backend.
-- Agent 3: JavaScript terminal UI.
-- Agent 4: Assistant panel.
-- Agent 5: Safety and audit.
-- Agent 6: Packaging and QA.
-
-See [docs/agents/README.md](docs/agents/README.md) for the full implementation split.
-
-## Safety Note
-
-This project is meant to control a real shell on a real machine. Assistant-generated commands must always be previewed and approved by the user before execution, and risky commands should require extra confirmation.
+This project is intended to control a real shell on a real machine. Assistant-generated commands should always be previewed before running, and destructive commands should require extra confirmation.
