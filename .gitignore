@@ -1,0 +1,13 @@
+# Go
+web-terminal
+*.test
+coverage.out
+
+# Frontend
+web/node_modules/
+web/dist/
+
+# Local environment
+.env
+.DS_Store
+

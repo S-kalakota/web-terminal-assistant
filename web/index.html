@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web Terminal</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div>
+          <h1>Web Terminal</h1>
+          <p id="cwd">Current directory unavailable until terminal backend is implemented.</p>
+        </div>
+        <div id="connection-status" class="status-pill">Checking</div>
+      </header>
+
+      <main class="workspace">
+        <section class="terminal-pane" aria-label="Terminal">
+          <div class="pane-header">
+            <span>Terminal</span>
+            <button id="connect-terminal" type="button">Check WebSocket</button>
+          </div>
+          <pre id="terminal-output" class="terminal-output">$ terminal backend placeholder ready
+$ real PTY support is assigned to Agent 2
+</pre>
+        </section>
+
+        <aside class="assistant-pane" aria-label="Assistant">
+          <div class="pane-header">
+            <span>Assistant</span>
+          </div>
+          <form id="assistant-form" class="assistant-form">
+            <label for="assistant-prompt">What do you want to do?</label>
+            <textarea id="assistant-prompt" name="prompt" rows="5">show hidden files sorted by newest</textarea>
+            <button type="submit">Suggest Command</button>
+          </form>
+          <div id="assistant-result" class="assistant-result" aria-live="polite"></div>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
+
