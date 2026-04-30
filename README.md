@@ -66,7 +66,7 @@ npm --prefix web run build
 
 ## Current Status
 
-This is an early project skeleton. The local server, static frontend, shared API message shapes, and placeholder assistant/risk routes are in place. The next major step is implementing the real PTY-backed terminal session so commands run through the user's actual shell.
+The local server, static frontend, shared API message shapes, placeholder assistant/risk routes, and PTY-backed terminal backend are in place. The terminal WebSocket at `/ws/terminal` starts a persistent local shell session, streams output, forwards input, handles resize messages, and cleans up when the socket closes.
 
 ## Safety
 

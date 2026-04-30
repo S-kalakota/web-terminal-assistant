@@ -1,88 +1,63 @@
-import { checkHealth, openTerminalSocket, suggestCommand } from "./api.js";
-import { setConnectionStatus } from "./state.js";
+import { checkHealth } from "./api.js";
+import { createTerminalSession } from "./terminal.js";
+import { setConnectionStatus, state } from "./state.js";
 
 const statusEl = document.querySelector("#connection-status");
-const terminalOutputEl = document.querySelector("#terminal-output");
-const connectButton = document.querySelector("#connect-terminal");
-const assistantForm = document.querySelector("#assistant-form");
-const assistantPrompt = document.querySelector("#assistant-prompt");
-const assistantResult = document.querySelector("#assistant-result");
+const cwdEl = document.querySelector("#cwd");
+const terminalEl = document.querySelector("#terminal");
+const reconnectButton = document.querySelector("#reconnect-terminal");
+let terminalSession = null;
 
 window.addEventListener("connection-change", (event) => {
-  const connected = event.detail.connected;
-  statusEl.textContent = connected ? "Server Ready" : "Disconnected";
-  statusEl.dataset.state = connected ? "ready" : "offline";
+  renderConnectionStatus(event.detail);
+});
+
+window.addEventListener("terminal-status", (event) => {
+  renderConnectionStatus(event.detail);
+  renderCwd(event.detail.cwd, event.detail.shell);
 });
 
 async function boot() {
+  renderConnectionStatus(state);
+  renderCwd(state.cwd, state.shell);
+
   try {
     await checkHealth();
-    setConnectionStatus(true);
+    setConnectionStatus("connecting");
   } catch (error) {
-    setConnectionStatus(false);
-    appendTerminalLine(`health check failed: ${error.message}`);
+    setConnectionStatus("offline", error.message);
   }
+
+  terminalSession = createTerminalSession({
+    container: terminalEl,
+    reconnectButton
+  });
+
+  window.webTerminal = {
+    runCommand(command) {
+      terminalSession.sendCommand(command);
+      terminalSession.focus();
+    }
+  };
 }
 
-connectButton.addEventListener("click", () => {
-  appendTerminalLine("opening placeholder websocket route...");
-  const socket = openTerminalSocket();
+function renderConnectionStatus({ connectionStatus, message }) {
+  const labels = {
+    checking: "Checking",
+    connecting: "Connecting",
+    connected: "Connected",
+    error: "Connection Error",
+    offline: "Disconnected"
+  };
 
-  socket.addEventListener("open", () => {
-    appendTerminalLine("websocket opened; terminal backend implementation is still pending");
-  });
-
-  socket.addEventListener("message", (event) => {
-    appendTerminalLine(event.data);
-  });
-
-  socket.addEventListener("error", () => {
-    appendTerminalLine("websocket connection failed because the skeleton route is not upgraded yet");
-  });
-});
-
-assistantForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  assistantResult.textContent = "Thinking...";
-
-  try {
-    const result = await suggestCommand(assistantPrompt.value);
-    renderSuggestions(result.suggestions ?? []);
-  } catch (error) {
-    assistantResult.textContent = error.message;
-  }
-});
-
-function renderSuggestions(suggestions) {
-  if (suggestions.length === 0) {
-    assistantResult.textContent = "No suggestions yet.";
-    return;
-  }
-
-  assistantResult.replaceChildren(
-    ...suggestions.map((suggestion) => {
-      const card = document.createElement("article");
-      card.className = "suggestion";
-
-      const command = document.createElement("code");
-      command.textContent = suggestion.command;
-
-      const explanation = document.createElement("p");
-      explanation.textContent = suggestion.explanation;
-
-      const risk = document.createElement("span");
-      risk.className = `risk risk-${suggestion.risk}`;
-      risk.textContent = `Risk: ${suggestion.risk}`;
-
-      card.append(command, explanation, risk);
-      return card;
-    })
-  );
+  statusEl.textContent = labels[connectionStatus] ?? "Disconnected";
+  statusEl.dataset.state = connectionStatus ?? "offline";
+  statusEl.title = message || statusEl.textContent;
 }
 
-function appendTerminalLine(line) {
-  terminalOutputEl.textContent += `\n$ ${line}`;
+function renderCwd(cwd, shell) {
+  const parts = [cwd || "Waiting for shell", shell].filter(Boolean);
+  cwdEl.textContent = parts.join("  ");
 }
 
 boot();
-

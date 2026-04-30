@@ -32,18 +32,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func (s *Server) handleTerminalWebSocket(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeMethodNotAllowed(w, http.MethodGet)
-		return
-	}
-
-	writeJSON(w, http.StatusNotImplemented, terminal.ErrorMessage{
-		Type:    terminal.MessageTypeError,
-		Message: "terminal websocket placeholder is ready; PTY support belongs to the terminal backend workstream",
-	})
-}
-
 func (s *Server) handleAssistantSuggest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeMethodNotAllowed(w, http.MethodPost)

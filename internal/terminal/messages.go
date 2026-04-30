@@ -1,5 +1,11 @@
 package terminal
 
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+)
+
 // MessageType identifies messages exchanged between the browser and backend.
 type MessageType string
 
@@ -33,6 +39,14 @@ type TerminalResizeMessage struct {
 	Rows int         `json:"rows"`
 }
 
+// TerminalClientMessage is the normalized form of browser-to-backend websocket messages.
+type TerminalClientMessage struct {
+	Type MessageType `json:"type"`
+	Data string      `json:"data,omitempty"`
+	Cols int         `json:"cols,omitempty"`
+	Rows int         `json:"rows,omitempty"`
+}
+
 // TerminalOutputMessage is sent by the backend with shell output.
 type TerminalOutputMessage struct {
 	Type MessageType `json:"type"`
@@ -51,6 +65,26 @@ type TerminalStatusMessage struct {
 type ErrorMessage struct {
 	Type    MessageType `json:"type"`
 	Message string      `json:"message"`
+}
+
+// ParseClientMessage validates a browser websocket message before it touches the PTY.
+func ParseClientMessage(payload []byte) (TerminalClientMessage, error) {
+	var msg TerminalClientMessage
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		return TerminalClientMessage{}, fmt.Errorf("invalid JSON message: %w", err)
+	}
+
+	switch msg.Type {
+	case MessageTypeInput:
+		return msg, nil
+	case MessageTypeResize:
+		if msg.Cols <= 0 || msg.Rows <= 0 {
+			return TerminalClientMessage{}, errors.New("resize messages require positive cols and rows")
+		}
+		return msg, nil
+	default:
+		return TerminalClientMessage{}, fmt.Errorf("unsupported terminal message type %q", msg.Type)
+	}
 }
 
 // AssistantSuggestRequest asks the backend to translate English to commands.

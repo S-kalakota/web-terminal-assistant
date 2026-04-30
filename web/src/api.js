@@ -43,3 +43,10 @@ export function openTerminalSocket() {
   return new WebSocket(`${protocol}//${window.location.host}/ws/terminal`);
 }
 
+export function encodeTerminalInput(data) {
+  return JSON.stringify({ type: "input", data });
+}
+
+export function encodeTerminalResize(cols, rows) {
+  return JSON.stringify({ type: "resize", cols, rows });
+}
