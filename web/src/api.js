@@ -10,15 +10,16 @@ export async function checkHealth() {
   return response.json();
 }
 
-export async function suggestCommand(prompt, cwd = "") {
+export async function suggestCommand(text, cwd = "") {
   const response = await fetch("/api/assistant/suggest", {
     method: "POST",
     headers: jsonHeaders,
-    body: JSON.stringify({ prompt, cwd })
+    body: JSON.stringify({ text, cwd })
   });
 
   if (!response.ok) {
-    throw new Error(`Suggestion request failed with ${response.status}`);
+    const body = await readJSON(response);
+    throw new Error(body?.error || body?.message || `Suggestion request failed with ${response.status}`);
   }
 
   return response.json();
@@ -46,7 +47,8 @@ export async function recordAssistantCommand({ command, cwd = "", risk = "low" }
   });
 
   if (!response.ok) {
-    throw new Error(`Audit request failed with ${response.status}`);
+    const body = await readJSON(response);
+    throw new Error(body?.error || body?.message || `Audit request failed with ${response.status}`);
   }
 
   return response.json();
@@ -63,4 +65,12 @@ export function encodeTerminalInput(data) {
 
 export function encodeTerminalResize(cols, rows) {
   return JSON.stringify({ type: "resize", cols, rows });
+}
+
+async function readJSON(response) {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
 }

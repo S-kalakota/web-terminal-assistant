@@ -2,11 +2,13 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"web-terminal/internal/assistant"
 	"web-terminal/internal/audit"
 	"web-terminal/internal/safety"
 	"web-terminal/internal/terminal"
@@ -41,34 +43,36 @@ func (s *Server) handleAssistantSuggest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req terminal.AssistantSuggestRequest
+	var req assistant.SuggestRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, terminal.ErrorMessage{
-			Type:    terminal.MessageTypeError,
-			Message: "invalid JSON request body",
+		writeJSON(w, http.StatusBadRequest, assistant.SuggestResponse{
+			Suggestions: []assistant.Suggestion{},
+			Error:       "Invalid JSON request body.",
 		})
 		return
 	}
 
-	prompt := strings.TrimSpace(strings.ToLower(req.Prompt))
-	suggestion := terminal.CommandSuggestion{
-		Command:     "pwd",
-		Explanation: "Placeholder suggestion. The assistant workstream will replace this with real English-to-command behavior.",
-		Risk:        terminal.RiskLow,
-	}
-
-	if strings.Contains(prompt, "hidden") || strings.Contains(prompt, "newest") {
-		suggestion = terminal.CommandSuggestion{
-			Command:     "ls -laht",
-			Explanation: "Lists all files, includes hidden files, uses human-readable sizes, and sorts newest first.",
-			Risk:        terminal.RiskLow,
+	response, err := assistant.Suggest(req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		message := "Could not create a suggestion."
+		if errors.Is(err, assistant.ErrEmptyInput) {
+			status = http.StatusBadRequest
+			message = "Request body must include text."
 		}
+		writeJSON(w, status, assistant.SuggestResponse{
+			Suggestions: []assistant.Suggestion{},
+			Error:       message,
+		})
+		return
 	}
-	suggestion.Risk = safety.AssessCommand(suggestion.Command).Risk
 
-	writeJSON(w, http.StatusOK, terminal.AssistantSuggestResponse{
-		Suggestions: []terminal.CommandSuggestion{suggestion},
-	})
+	for i := range response.Suggestions {
+		assessment := safety.AssessCommand(response.Suggestions[i].Command)
+		response.Suggestions[i].Risk = assistant.RiskLevel(assessment.Risk)
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handleCommandRisk(w http.ResponseWriter, r *http.Request) {
@@ -139,9 +143,10 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	webDir := s.staticWebDir()
 	path := filepath.Clean(r.URL.Path)
 	if path == "/" || path == "." {
-		http.ServeFile(w, r, filepath.Join(s.cfg.WebDir, "index.html"))
+		http.ServeFile(w, r, filepath.Join(webDir, "index.html"))
 		return
 	}
 
@@ -151,7 +156,7 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filePath := filepath.Join(s.cfg.WebDir, relPath)
+	filePath := filepath.Join(webDir, relPath)
 	info, err := os.Stat(filePath)
 	if err != nil || info.IsDir() {
 		http.NotFound(w, r)
@@ -159,6 +164,19 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.ServeFile(w, r, filePath)
+}
+
+func (s *Server) staticWebDir() string {
+	if s.cfg.WebDir != "" && s.cfg.WebDir != "web" {
+		return s.cfg.WebDir
+	}
+
+	dist := filepath.Join("web", "dist")
+	if info, err := os.Stat(filepath.Join(dist, "index.html")); err == nil && !info.IsDir() {
+		return dist
+	}
+
+	return s.cfg.WebDir
 }
 
 func securityHeaders(next http.Handler) http.Handler {

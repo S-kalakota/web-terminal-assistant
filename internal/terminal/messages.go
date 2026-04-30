@@ -90,12 +90,15 @@ func ParseClientMessage(payload []byte) (TerminalClientMessage, error) {
 // AssistantSuggestRequest asks the backend to translate English to commands.
 type AssistantSuggestRequest struct {
 	Prompt string `json:"prompt"`
+	Text   string `json:"text,omitempty"`
 	CWD    string `json:"cwd"`
 }
 
 // AssistantSuggestResponse returns possible commands for a user request.
 type AssistantSuggestResponse struct {
-	Suggestions []CommandSuggestion `json:"suggestions"`
+	Suggestions   []CommandSuggestion `json:"suggestions"`
+	Clarification string              `json:"clarification,omitempty"`
+	Error         string              `json:"error,omitempty"`
 }
 
 // CommandSuggestion is a single assistant-generated command candidate.
@@ -115,4 +118,17 @@ type CommandRiskResponse struct {
 	Risk                 RiskLevel `json:"risk"`
 	RequiresConfirmation bool      `json:"requiresConfirmation"`
 	Reason               string    `json:"reason"`
+}
+
+// CommandAuditRequest records an approved assistant command.
+type CommandAuditRequest struct {
+	Command string    `json:"command"`
+	CWD     string    `json:"cwd"`
+	Risk    RiskLevel `json:"risk"`
+	Source  string    `json:"source"`
+}
+
+// CommandAuditResponse confirms that an audit record was written.
+type CommandAuditResponse struct {
+	OK bool `json:"ok"`
 }

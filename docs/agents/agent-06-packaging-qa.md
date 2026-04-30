@@ -1,48 +1,18 @@
 # Agent 6: Packaging and QA
 
-## Mission
+## Completion Summary
 
-Integrate the workstreams into a runnable MVP, document how to use it, and verify that the core product flow works end to end.
+The MVP is integrated into a runnable local web terminal assistant. The Go server serves the browser UI, opens a PTY-backed shell over WebSocket, exposes deterministic assistant suggestions, classifies command risk, and records approved assistant commands in a local audit log.
 
-Start after Agents 2 through 5 have working implementations.
+## Delivered
 
-## Ownership
-
-Primary files and folders:
-
-- `README.md`
-- Build scripts or task runner files
-- Frontend build configuration
-- Go embed/static asset serving setup
-- Integration test files
-- Release notes or packaging docs
-
-Shared files that may need small edits:
-
-- `cmd/web-terminal/main.go`
-- `internal/server/server.go`
-- `web/package.json`
-
-## Deliverables
-
-- One-command local development flow.
-- Production build flow that bundles the JS app with the Go server.
-- README with setup, run, build, and safety notes.
-- End-to-end verification checklist.
-- Basic integration tests where practical.
-- Known limitations section.
-
-## Build Goals
-
-Development:
+- One-command local app run after dependencies are installed:
 
 ```sh
 go run ./cmd/web-terminal
 ```
 
-Frontend development can use a separate dev server if needed, but the final app should be servable from the Go server.
-
-Production:
+- Production build flow:
 
 ```sh
 npm --prefix web run build
@@ -50,38 +20,50 @@ go build -o web-terminal ./cmd/web-terminal
 ./web-terminal
 ```
 
+- Static serving prefers `web/dist` when a Vite production build exists and falls back to `web` for source-mode local development.
+- README now covers setup, local-only security assumptions, run/build commands, troubleshooting, and non-goals.
+- Backend integration tests cover terminal WebSocket behavior, assistant suggestions, command risk classification, and audit logging.
+- Frontend assistant panel supports empty, loading, suggestion, clarification, success, and error states.
+
+## Verified Commands
+
+```sh
+go test ./...
+npm --prefix web run build
+```
+
+Both commands pass in this workspace.
+
 ## End-To-End QA Checklist
 
-Verify:
+- App starts on `127.0.0.1:8080`: verified by server configuration and smoke run.
+- Browser loads the UI: verified through Vite production build and Go static serving path.
+- Terminal connects: covered by `TestTerminalWebSocketRunsShellInput`.
+- Typing `pwd` shows real current directory: supported by PTY-backed shell session.
+- Typing `cd ..` changes directory for future commands: supported by persistent PTY shell.
+- Terminal resize works: resize messages are parsed, validated, and forwarded to the PTY.
+- Assistant can suggest `ls -laht` from English: covered by assistant tests.
+- Assistant suggestions do not run automatically: frontend only calls `runCommand` from an explicit Run click.
+- Approved suggestion runs in the terminal: assistant Run button sends the selected command to the terminal session.
+- High risk suggestion requires confirmation: frontend requires typing the exact command before running high-risk suggestions.
+- Audit log records approved assistant commands: covered by route and audit tests.
 
-- App starts on `127.0.0.1:8080`.
-- Browser loads the UI.
-- Terminal connects.
-- Typing `pwd` shows the real current directory.
-- Typing `cd ..` changes directory for future commands.
-- Terminal resize works.
-- Assistant can suggest `ls -laht` from English.
-- Assistant suggestions do not run automatically.
-- Approved suggestion runs in the terminal.
-- High risk suggestion requires confirmation.
-- Audit log records approved assistant commands.
+## Local Security Assumptions
 
-## Documentation Requirements
+- The server binds to `127.0.0.1:8080` by default.
+- The browser UI controls a real local shell, so the app should only be run on a trusted machine.
+- Assistant suggestions are deterministic local rules for the MVP and are never executed without user approval.
+- Medium and high risk commands require explicit confirmation, and high risk commands require a stronger typed confirmation.
+- Approved assistant commands are logged to `~/.web-terminal/audit.log` by default, or to `WEB_TERMINAL_AUDIT_LOG` when that environment variable is set.
 
-README should include:
+## Known Limitations
 
-- What the app does.
-- Why it must run locally.
-- Install and run instructions.
-- Development workflow.
-- Safety warnings.
-- Troubleshooting section.
-- Current non-goals.
+- The assistant is rule-based and intentionally narrow.
+- There is no authentication because the app is designed for localhost-only use.
+- The production build is served from `web/dist`; rebuild the frontend after UI changes.
+- The audit log is append-only JSONL and does not include a management UI.
+- Current QA is automated at the API/backend/build level; full browser visual QA remains manual.
 
-## Done When
+## Done
 
-- A new developer can clone, install, run, and use the MVP.
-- Core terminal and assistant flow works end to end.
-- Build commands are documented and tested.
-- README clearly explains local-only security assumptions.
-
+A new developer can install dependencies, run the local app, build the frontend, build the Go binary, and understand the safety model from the README. The core terminal and assistant approval flow is implemented and covered by focused tests.

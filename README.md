@@ -1,54 +1,47 @@
 # Web Terminal Assistant
 
-Web Terminal Assistant is a local-first web application that brings a terminal-style experience into the browser. The goal is to let a user interact with their actual computer from a website running locally on their machine.
+Web Terminal Assistant is a local-first web app that gives the browser a real terminal session on your machine. A Go server runs locally, serves the UI, opens a PTY-backed shell, and streams terminal input/output over WebSocket.
 
-The app is designed around a simple idea: the browser provides a friendlier interface, while a local Go backend handles the parts a normal website is not allowed to do, such as running shell commands or connecting to the filesystem.
-
-## What It Does
-
-- Serves a browser-based terminal interface from a local Go server.
-- Runs locally at `http://127.0.0.1:8080`.
-- Provides API routes for terminal communication, assistant suggestions, and command risk checks.
-- Includes a JavaScript frontend shell with a terminal panel and assistant panel.
-- Lays the foundation for a real PTY-backed terminal where commands like `pwd`, `ls`, `cd`, and `git status` can run on the user's computer.
-- Includes the foundation for an English-to-command assistant that can suggest shell commands before the user approves them.
+The app also includes a deterministic command assistant. You describe a task in English, review the suggested command, and choose whether to run it. Suggestions never execute automatically.
 
 ## Why It Runs Locally
 
-A normal hosted website cannot safely access a user's hard drive or run terminal commands. Browsers block that on purpose.
-
-This project solves that by running a local Go server on the user's computer. The browser talks to that local server, and the local server is responsible for terminal access.
-
-By default, the app binds to:
+Browsers are not allowed to run shell commands or freely access your filesystem. This project works by running a local Go server on your computer and binding to:
 
 ```text
 127.0.0.1:8080
 ```
 
-## Tech Stack
+The browser talks only to that local server. Because the server controls a real shell, only run it on a trusted machine.
 
-- Go for the local backend server, routing, API contracts, and future terminal process management.
-- JavaScript for the browser UI.
-- HTML and CSS for the frontend layout and styling.
-- Vite for frontend development and builds.
-- npm for frontend dependency management.
+## Features
 
-## Project Structure
+- Browser terminal powered by xterm.js.
+- PTY-backed local shell with persistent session state.
+- WebSocket terminal input, output, and resize handling.
+- Rule-based English-to-command suggestions for common safe tasks.
+- Risk classification for low, medium, and high risk commands.
+- Extra confirmation for high risk assistant commands.
+- Local audit log for approved assistant commands.
 
-```text
-cmd/web-terminal/        Go application entry point
-internal/server/         HTTP server and route handlers
-internal/terminal/       Shared terminal and API message structs
-web/                     JavaScript frontend app
-docs/                    Planning and implementation notes
+## Requirements
+
+- Go 1.22 or newer.
+- Node.js and npm.
+- A Unix-like shell environment.
+
+## Install
+
+From the project root:
+
+```sh
+npm --prefix web install
+go mod download
 ```
 
 ## Run Locally
 
-Install Go and Node.js, then from the project root run:
-
 ```sh
-npm --prefix web install
 go run ./cmd/web-terminal
 ```
 
@@ -58,16 +51,64 @@ Open:
 http://127.0.0.1:8080
 ```
 
-## Build Frontend
+The server serves `web/dist` when a production frontend build exists. If `web/dist` is absent, it falls back to the source files under `web`.
+
+## Frontend Development
+
+Run the Go backend:
+
+```sh
+go run ./cmd/web-terminal
+```
+
+In another terminal, run Vite:
+
+```sh
+npm --prefix web run dev
+```
+
+Vite proxies `/api`, `/healthz`, and `/ws` to the local Go server.
+
+## Production Build
 
 ```sh
 npm --prefix web run build
+go build -o web-terminal ./cmd/web-terminal
+./web-terminal
 ```
 
-## Current Status
-
-The local server, static frontend, shared API message shapes, placeholder assistant/risk routes, and PTY-backed terminal backend are in place. The terminal WebSocket at `/ws/terminal` starts a persistent local shell session, streams output, forwards input, handles resize messages, and cleans up when the socket closes.
+Set `WEB_TERMINAL_ADDR` to use a different local bind address, and `WEB_TERMINAL_WEB_DIR` to serve a specific frontend directory.
 
 ## Safety
 
-This project is intended to control a real shell on a real machine. Assistant-generated commands should always be previewed before running, and destructive commands should require extra confirmation.
+This app controls a real shell. Treat every command as if you typed it in your normal terminal.
+
+- Assistant suggestions are previews, not automatic actions.
+- Medium risk commands show warnings and require an explicit Run click.
+- High risk commands require typing the exact command before running.
+- Approved assistant commands are logged locally.
+- The default audit log path is `~/.web-terminal/audit.log`.
+- For tests or custom deployments, set `WEB_TERMINAL_AUDIT_LOG=/path/to/audit.log`.
+
+## Test
+
+```sh
+go test ./...
+npm --prefix web run build
+```
+
+## Troubleshooting
+
+- Port already in use: run with `WEB_TERMINAL_ADDR=127.0.0.1:8090 go run ./cmd/web-terminal`.
+- Blank or stale UI after frontend changes: run `npm --prefix web run build` again.
+- Terminal does not connect: confirm the Go server is running and the browser is opened on the same local address.
+- Assistant audit fails: check permissions for `~/.web-terminal` or set `WEB_TERMINAL_AUDIT_LOG` to a writable path.
+- Shell is unexpected: the backend uses `$SHELL` when available and falls back to `/bin/sh`.
+
+## Current Non-Goals
+
+- Hosted remote terminal access.
+- Multi-user authentication.
+- External AI model calls.
+- Full natural language shell planning.
+- Audit log viewer or retention management.
