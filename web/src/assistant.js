@@ -96,8 +96,8 @@ export function createAssistantPanel({ container, runCommand }) {
       const response = await suggestCommand(prompt, state.cwd);
       const suggestions = response.suggestions ?? [];
       view.suggestions = await Promise.all(suggestions.map(enrichSuggestion));
-      view.message = view.suggestions.length ? "" : response.clarification || "No command suggestion available.";
-      view.messageTone = "neutral";
+      view.message = response.warning || (view.suggestions.length ? "" : response.clarification || "No command suggestion available.");
+      view.messageTone = response.warning ? "warning" : "neutral";
       view.activeHistoryId = addHistoryEntry({
         prompt,
         cwd: state.cwd,

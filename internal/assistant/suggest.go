@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 )
 
@@ -37,6 +38,8 @@ type SuggestResponse struct {
 	Suggestions   []Suggestion `json:"suggestions"`
 	Clarification string       `json:"clarification,omitempty"`
 	Error         string       `json:"error,omitempty"`
+	Source        string       `json:"source,omitempty"`
+	Warning       string       `json:"warning,omitempty"`
 }
 
 var ErrEmptyInput = errors.New("request body must include text")
@@ -52,7 +55,13 @@ func SuggestWithLLM(ctx context.Context, req SuggestRequest) (SuggestResponse, e
 	}
 
 	if response, err := suggestWithOpenAI(ctx, req); err == nil {
+		response.Source = "openai"
 		return response, nil
+	} else if !errors.Is(err, errOpenAINotConfigured) {
+		log.Printf("assistant OpenAI unavailable, using local rules: %v", err)
+		response, fallbackErr := suggestRules(req)
+		response.Warning = "OpenAI was unavailable, so the assistant used local fallback rules."
+		return response, fallbackErr
 	}
 
 	return suggestRules(req)
@@ -71,15 +80,22 @@ func suggestRules(req SuggestRequest) (SuggestResponse, error) {
 	if response, ok := matchFolderCreation(input, normalized); ok {
 		return response, nil
 	}
+	if response, ok := matchDirectoryNavigation(input, normalized); ok {
+		return response, nil
+	}
 	if response, ok := matchAmbiguousRequest(normalized); ok {
 		return response, nil
 	}
+	if response, ok := fallbackSuggestion(normalized); ok {
+		return response, nil
+	}
 
-	return clarification("I do not know a safe command for that yet. Try asking for files, git status, your current folder, or a folder creation."), nil
+	return suggestion("pwd", "Prints the current directory so you can orient before the next command.", RiskLow), nil
 }
 
 func suggestion(command, explanation string, risk RiskLevel) SuggestResponse {
 	return SuggestResponse{
+		Source: "rules",
 		Suggestions: []Suggestion{
 			{
 				Command:     command,
@@ -94,5 +110,6 @@ func clarification(message string) SuggestResponse {
 	return SuggestResponse{
 		Suggestions:   []Suggestion{},
 		Clarification: message,
+		Source:        "rules",
 	}
 }

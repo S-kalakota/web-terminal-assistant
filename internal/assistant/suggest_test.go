@@ -6,6 +6,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -26,6 +29,10 @@ func TestSuggestMVPExamples(t *testing.T) {
 		{name: "print working directory", text: "print working directory", command: "pwd"},
 		{name: "show directory contents", text: "show directory contents", command: "ls"},
 		{name: "show git status", text: "show git status", command: "git status"},
+		{name: "go back a directory", text: "Go back a directory", command: "cd .."},
+		{name: "go to folder", text: "go to folder docs", command: "cd docs"},
+		{name: "clear terminal", text: "clear terminal", command: "clear"},
+		{name: "run tests", text: "run tests", command: "go test ./..."},
 	}
 
 	for _, tt := range tests {
@@ -89,6 +96,45 @@ func TestSuggestClarifiesAmbiguousInput(t *testing.T) {
 	}
 }
 
+func TestSuggestMoveDirectoryFallback(t *testing.T) {
+	response, err := Suggest(SuggestRequest{Text: "Move Directory"})
+	if err != nil {
+		t.Fatalf("Suggest returned error: %v", err)
+	}
+	if len(response.Suggestions) != 1 {
+		t.Fatalf("Suggestions length = %d, want 1", len(response.Suggestions))
+	}
+	if response.Suggestions[0].Command != "mv <source_directory> <destination_directory>" {
+		t.Fatalf("Command = %q, want mv placeholders", response.Suggestions[0].Command)
+	}
+}
+
+func TestSuggestProvidesBroadFallbacks(t *testing.T) {
+	tests := []struct {
+		text    string
+		command string
+	}{
+		{text: "move the thing", command: "mv <source> <destination>"},
+		{text: "search for a config", command: "find . -name '<pattern>'"},
+		{text: "completely unknown request", command: "pwd"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.text, func(t *testing.T) {
+			response, err := Suggest(SuggestRequest{Text: tt.text})
+			if err != nil {
+				t.Fatalf("Suggest returned error: %v", err)
+			}
+			if len(response.Suggestions) != 1 {
+				t.Fatalf("Suggestions length = %d, want 1", len(response.Suggestions))
+			}
+			if response.Suggestions[0].Command != tt.command {
+				t.Fatalf("Command = %q, want %q", response.Suggestions[0].Command, tt.command)
+			}
+		})
+	}
+}
+
 func TestSuggestQuotesFolderNames(t *testing.T) {
 	response, err := Suggest(SuggestRequest{Text: "make a folder named Project Notes"})
 	if err != nil {
@@ -115,6 +161,21 @@ func TestSuggestClarifiesUnsafeFolderNames(t *testing.T) {
 func TestSuggestWithLLMUsesOpenAIWhenConfigured(t *testing.T) {
 	var gotAuth string
 	var gotModel string
+	var gotPrompt string
+	tempDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(tempDir, "docs"), 0o755); err != nil {
+		t.Fatalf("Mkdir returned error: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tempDir, "internal", "assistant"), 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, "README.md"), []byte("test"), 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, "internal", "assistant", "suggest.go"), []byte("package assistant"), 0o600); err != nil {
+		t.Fatalf("WriteFile nested returned error: %v", err)
+	}
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
 			t.Fatalf("path = %q, want /responses", r.URL.Path)
@@ -126,6 +187,7 @@ func TestSuggestWithLLMUsesOpenAIWhenConfigured(t *testing.T) {
 			t.Fatalf("Decode request returned error: %v", err)
 		}
 		gotModel = req.Model
+		gotPrompt = req.Input[len(req.Input)-1].Content[0].Text
 
 		writeTestJSON(w, openAIResponse{
 			OutputText: `{"suggestions":[{"command":"git log --oneline -5","explanation":"Shows the five newest commits.","risk":"low"}]}`,
@@ -137,7 +199,7 @@ func TestSuggestWithLLMUsesOpenAIWhenConfigured(t *testing.T) {
 	t.Setenv("OPENAI_MODEL", "test-model")
 	t.Setenv("OPENAI_BASE_URL", server.URL)
 
-	response, err := SuggestWithLLM(context.Background(), SuggestRequest{Text: "show recent commits"})
+	response, err := SuggestWithLLM(context.Background(), SuggestRequest{Text: "show recent commits", CWD: tempDir})
 	if err != nil {
 		t.Fatalf("SuggestWithLLM returned error: %v", err)
 	}
@@ -147,8 +209,20 @@ func TestSuggestWithLLMUsesOpenAIWhenConfigured(t *testing.T) {
 	if gotModel != "test-model" {
 		t.Fatalf("model = %q, want test-model", gotModel)
 	}
+	if !strings.Contains(gotPrompt, "Current directory: "+tempDir) {
+		t.Fatalf("prompt did not include cwd: %q", gotPrompt)
+	}
+	if !strings.Contains(gotPrompt, "dir: docs") || !strings.Contains(gotPrompt, "file: README.md") {
+		t.Fatalf("prompt did not include directory entries: %q", gotPrompt)
+	}
+	if !strings.Contains(gotPrompt, "file: internal/assistant/suggest.go") {
+		t.Fatalf("prompt did not include nested directory entries: %q", gotPrompt)
+	}
 	if response.Suggestions[0].Command != "git log --oneline -5" {
 		t.Fatalf("command = %q, want LLM command", response.Suggestions[0].Command)
+	}
+	if response.Source != "openai" {
+		t.Fatalf("source = %q, want openai", response.Source)
 	}
 }
 
@@ -161,6 +235,9 @@ func TestSuggestWithLLMFallsBackWhenOpenAIUnavailable(t *testing.T) {
 	}
 	if response.Suggestions[0].Command != "ls" {
 		t.Fatalf("command = %q, want rule fallback", response.Suggestions[0].Command)
+	}
+	if response.Source != "rules" {
+		t.Fatalf("source = %q, want rules", response.Source)
 	}
 }
 

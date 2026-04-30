@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -15,9 +17,14 @@ import (
 const (
 	defaultOpenAIBaseURL = "https://api.openai.com/v1"
 	defaultOpenAIModel   = "gpt-5.4-mini"
+	maxContextEntries    = 150
+	maxContextDepth      = 3
 )
 
-var errOpenAINotConfigured = errors.New("openai api key is not configured")
+var (
+	errOpenAINotConfigured = errors.New("openai api key is not configured")
+	errContextLimitReached = errors.New("context entry limit reached")
+)
 
 type openAIRequest struct {
 	Model           string               `json:"model"`
@@ -68,7 +75,7 @@ func suggestWithOpenAI(ctx context.Context, req SuggestRequest) (SuggestResponse
 			{
 				Role: "user",
 				Content: []openAIInputTextBlock{
-					{Type: "input_text", Text: buildOpenAIUserPrompt(req.Input())},
+					{Type: "input_text", Text: buildOpenAIUserPrompt(req, collectDirectoryContext(req.CWD))},
 				},
 			},
 		},
@@ -182,4 +189,152 @@ func sanitizeModelSuggestions(suggestions []Suggestion) []Suggestion {
 		}
 	}
 	return cleaned
+}
+
+type directoryContext struct {
+	CWD     string
+	Entries []directoryEntry
+}
+
+type directoryEntry struct {
+	Path     string
+	Kind     string
+	Size     int64
+	Modified string
+}
+
+func collectDirectoryContext(cwd string) directoryContext {
+	cleanedCWD := filepath.Clean(strings.TrimSpace(cwd))
+	if cleanedCWD == "." || cleanedCWD == "" || !filepath.IsAbs(cleanedCWD) {
+		return directoryContext{}
+	}
+
+	context := directoryContext{
+		CWD:     cleanedCWD,
+		Entries: make([]directoryEntry, 0, maxContextEntries),
+	}
+
+	err := filepath.WalkDir(cleanedCWD, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			if entry != nil && entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if path == cleanedCWD {
+			return nil
+		}
+
+		name := entry.Name()
+		if shouldSkipContextEntry(name, entry.IsDir()) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		relPath, err := filepath.Rel(cleanedCWD, path)
+		if err != nil {
+			return nil
+		}
+		relPath = filepath.ToSlash(relPath)
+		if contextDepth(relPath) > maxContextDepth {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		kind := "file"
+		if entry.IsDir() {
+			kind = "dir"
+		}
+
+		var size int64
+		var modified string
+		if info, err := entry.Info(); err == nil {
+			size = info.Size()
+			modified = info.ModTime().UTC().Format(time.RFC3339)
+		}
+
+		context.Entries = append(context.Entries, directoryEntry{
+			Path:     relPath,
+			Kind:     kind,
+			Size:     size,
+			Modified: modified,
+		})
+		if len(context.Entries) >= maxContextEntries {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return errContextLimitReached
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, errContextLimitReached) {
+		return directoryContext{CWD: cleanedCWD}
+	}
+
+	return context
+}
+
+func (context directoryContext) format() string {
+	var builder strings.Builder
+	for _, entry := range context.Entries {
+		builder.WriteString("- ")
+		builder.WriteString(entry.Kind)
+		builder.WriteString(": ")
+		builder.WriteString(entry.Path)
+		if entry.Kind == "file" && entry.Size > 0 {
+			builder.WriteString(" (")
+			builder.WriteString(formatApproxSize(entry.Size))
+			builder.WriteString(")")
+		}
+		if entry.Modified != "" {
+			builder.WriteString(" modified ")
+			builder.WriteString(entry.Modified)
+		}
+		builder.WriteByte('\n')
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func shouldSkipContextEntry(name string, isDir bool) bool {
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	if !isDir {
+		return false
+	}
+	return slices.Contains([]string{
+		"node_modules",
+		"dist",
+		"build",
+		"coverage",
+		"vendor",
+		"tmp",
+		"temp",
+	}, name)
+}
+
+func contextDepth(path string) int {
+	if path == "" {
+		return 0
+	}
+	return strings.Count(path, "/") + 1
+}
+
+func formatApproxSize(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	div := int64(unit)
+	exp := 0
+	for n := size / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(size)/float64(div), "KMGTPE"[exp])
 }
