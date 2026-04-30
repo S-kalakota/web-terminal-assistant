@@ -1,5 +1,5 @@
 # Go
-web-terminal
+/web-terminal
 *.test
 coverage.out
 
@@ -9,5 +9,6 @@ web/dist/
 
 # Local environment
 .env
+.env.*
+!.env.example
 .DS_Store
-

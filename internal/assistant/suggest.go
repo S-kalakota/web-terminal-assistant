@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"context"
 	"errors"
 	"strings"
 )
@@ -41,6 +42,23 @@ type SuggestResponse struct {
 var ErrEmptyInput = errors.New("request body must include text")
 
 func Suggest(req SuggestRequest) (SuggestResponse, error) {
+	return suggestRules(req)
+}
+
+func SuggestWithLLM(ctx context.Context, req SuggestRequest) (SuggestResponse, error) {
+	input := strings.TrimSpace(req.Input())
+	if input == "" {
+		return SuggestResponse{}, ErrEmptyInput
+	}
+
+	if response, err := suggestWithOpenAI(ctx, req); err == nil {
+		return response, nil
+	}
+
+	return suggestRules(req)
+}
+
+func suggestRules(req SuggestRequest) (SuggestResponse, error) {
 	input := strings.TrimSpace(req.Input())
 	if input == "" {
 		return SuggestResponse{}, ErrEmptyInput

@@ -52,7 +52,7 @@ func (s *Server) handleAssistantSuggest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	response, err := assistant.Suggest(req)
+	response, err := assistant.SuggestWithLLM(r.Context(), req)
 	if err != nil {
 		status := http.StatusInternalServerError
 		message := "Could not create a suggestion."

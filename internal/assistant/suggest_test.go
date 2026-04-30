@@ -1,7 +1,11 @@
 package assistant
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -105,5 +109,64 @@ func TestSuggestClarifiesUnsafeFolderNames(t *testing.T) {
 	}
 	if response.Clarification == "" {
 		t.Fatal("Clarification is empty")
+	}
+}
+
+func TestSuggestWithLLMUsesOpenAIWhenConfigured(t *testing.T) {
+	var gotAuth string
+	var gotModel string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("path = %q, want /responses", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+
+		var req openAIRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("Decode request returned error: %v", err)
+		}
+		gotModel = req.Model
+
+		writeTestJSON(w, openAIResponse{
+			OutputText: `{"suggestions":[{"command":"git log --oneline -5","explanation":"Shows the five newest commits.","risk":"low"}]}`,
+		})
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("OPENAI_MODEL", "test-model")
+	t.Setenv("OPENAI_BASE_URL", server.URL)
+
+	response, err := SuggestWithLLM(context.Background(), SuggestRequest{Text: "show recent commits"})
+	if err != nil {
+		t.Fatalf("SuggestWithLLM returned error: %v", err)
+	}
+	if gotAuth != "Bearer test-key" {
+		t.Fatalf("Authorization = %q, want bearer token", gotAuth)
+	}
+	if gotModel != "test-model" {
+		t.Fatalf("model = %q, want test-model", gotModel)
+	}
+	if response.Suggestions[0].Command != "git log --oneline -5" {
+		t.Fatalf("command = %q, want LLM command", response.Suggestions[0].Command)
+	}
+}
+
+func TestSuggestWithLLMFallsBackWhenOpenAIUnavailable(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+
+	response, err := SuggestWithLLM(context.Background(), SuggestRequest{Text: "list files"})
+	if err != nil {
+		t.Fatalf("SuggestWithLLM returned error: %v", err)
+	}
+	if response.Suggestions[0].Command != "ls" {
+		t.Fatalf("command = %q, want rule fallback", response.Suggestions[0].Command)
+	}
+}
+
+func writeTestJSON(w http.ResponseWriter, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		panic(err)
 	}
 }
